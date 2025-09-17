@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Stock WebSocket Stream</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; background:#f7f9fb; display:flex; align-items:center; justify-content:center; height:100vh; }
+    .card { background:#fff; padding:20px 24px; border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,0.06); width:400px; }
+    h2 { margin:0 0 12px 0; font-size:18px; }
+    .row { display:flex; justify-content:space-between; margin:8px 0; }
+    .muted { color: #666; font-size:13px; }
+    #log { height:120px; overflow:auto; background:#0f1724; color:#d1e7ff; padding:8px; border-radius:6px; font-family:monospace; font-size:12px; margin-top:12px;}
+    .tag { font-size:13px; color:#444; }
+    input, button { padding:6px 10px; font-size:14px; border-radius:6px; border:1px solid #ccc; }
+    button { margin-left:6px; cursor:pointer; background:#007bff; color:white; border:none; }
+    button:hover { background:#0056b3; }
+    .controls { display:flex; margin-bottom:12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>📈 Stock Stream</h2>
+
+    <div class="controls">
+      <input type="text" id="symbol" placeholder="Enter symbol e.g. AAPL" value="AAPL">
+      <button id="btnLive">Live Data</button>
+      <button id="btnHistory">Historical Data</button>
+    </div>
+
+    <div class="row"><div class="tag">Price (close)</div><div id="price">--</div></div>
+    <div class="row"><div class="tag">Change %</div><div id="change">--</div></div>
+    <div class="row"><div class="tag">Open</div><div id="open">--</div></div>
+    <div class="row"><div class="tag">High</div><div id="high">--</div></div>
+    <div class="row"><div class="tag">Low</div><div id="low">--</div></div>
+    <div class="row"><div class="tag">Volume</div><div id="volume">--</div></div>
+    <div class="row"><div class="tag">Timestamp</div><div id="ts">--</div></div>
+    <div class="muted" id="status">Enter symbol and select data type</div>
+
+    <div id="log"></div>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const logEl = document.getElementById('log');
+
+    let ws = null;
+
+    function log(msg){
+      const time = new Date().toLocaleTimeString();
+      logEl.innerText = `[${time}] ${msg}\n` + logEl.innerText;
+    }
+
+    function connectWebSocket(symbol, type){
+      if(ws){
+        ws.close();
+        ws = null;
+      }
+
+      let path = type === 'live' ? `/ws/stocks/${symbol}` : `/ws/stocks/${symbol}/history`;
+      const WS_URL = `ws://localhost:8000${path}`;
+      ws = new WebSocket(WS_URL);
+
+      statusEl.innerText = `Connecting to ${type} data...`;
+
+      ws.onopen = () => {
+        statusEl.innerText = `✅ Connected to ${type} WebSocket`;
+        log(`Connected to ${WS_URL}`);
+      };
+
+      ws.onerror = (ev) => {
+        statusEl.innerText = "❌ WebSocket error (see console)";
+        log(`WebSocket error: ${JSON.stringify(ev)}`);
+        console.error("WebSocket error:", ev);
+      };
+
+      ws.onclose = (ev) => {
+        statusEl.innerText = `❌ Disconnected (code=${ev.code})`;
+        log(`Disconnected, code=${ev.code}`);
+        console.warn("WebSocket closed", ev);
+      };
+
+      ws.onmessage = (evt) => {
+        let data;
+        try { data = JSON.parse(evt.data); } 
+        catch (e) { log("Invalid JSON: " + evt.data); return; }
+
+        if (data.error) {
+          statusEl.innerText = "⚠️ " + data.error;
+          log("Server error: " + data.error);
+          return;
+        }
+        if (data.info && data.info === "history_end") {
+          statusEl.innerText = "ℹ️ History stream ended";
+          log("History stream ended by server");
+          return;
+        }
+
+        const price = (data.price ?? data.close ?? null);
+        const open = (data.open ?? null);
+        const high = (data.high ?? null);
+        const low = (data.low ?? null);
+        const volume = (data.volume ?? null);
+        const timestamp = (data.last_updated ?? data.timestamp ?? null);
+
+        let changePct = (data.change_percent ?? null);
+        if (changePct === null && price != null && open != null && open !== 0) {
+          changePct = ((Number(price) - Number(open)) / Number(open)) * 100;
+        }
+
+        document.getElementById('price').innerText = (price != null && !Number.isNaN(Number(price))) ? Number(price).toFixed(2) : "--";
+        document.getElementById('open').innerText  = (open  != null && !Number.isNaN(Number(open)))  ? Number(open).toFixed(2)  : "--";
+        document.getElementById('high').innerText  = (high  != null && !Number.isNaN(Number(high)))  ? Number(high).toFixed(2)  : "--";
+        document.getElementById('low').innerText   = (low   != null && !Number.isNaN(Number(low)))   ? Number(low).toFixed(2)   : "--";
+        document.getElementById('volume').innerText= (volume != null) ? volume : "--";
+        document.getElementById('ts').innerText    = timestamp ? new Date(timestamp).toLocaleString() : "--";
+        document.getElementById('change').innerText= (changePct != null && !Number.isNaN(Number(changePct))) ? Number(changePct).toFixed(2) + " %" : "--";
+
+        log(`received ${timestamp ?? ""} close=${price ?? "--"} vol=${volume ?? "--"}`);
+      };
+    }
+
+    document.getElementById('btnLive').onclick = () => {
+      const symbol = document.getElementById('symbol').value.trim();
+      if(symbol) connectWebSocket(symbol, 'live');
+    };
+    document.getElementById('btnHistory').onclick = () => {
+      const symbol = document.getElementById('symbol').value.trim();
+      if(symbol) connectWebSocket(symbol, 'history');
+    };
+  </script>
+</body>
+</html>

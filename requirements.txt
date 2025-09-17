@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+alpha-vantage
+duckdb
+pydantic
+python-multipart
+requests
+python-dotenv
+flask
+flask-socketio
+requests
